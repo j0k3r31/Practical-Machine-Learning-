@@ -1,0 +1,110 @@
+---
+html_document: default
+author: "Jishnu Unnikrishnan"
+date: "August 10, 2020"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+title: "Practical Machine Learning Course Project"
+---
+  
+  ```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(rpart)
+library(randomForest)
+```
+
+## Introduction
+
+This project is being carried out in completion of the "Practical Machine Learning" Coursera course.
+
+A dataset of measurement data has been provided by the course.  The dataset is comprised of measurements of acceleration made by individuals who are carrying out one of five classes of physical activity.  According to this project's instructions, the measurements are made using devices worn on the belt, forearm, arm, and a dumbbell.  
+
+Additional information the dataset is available here: <http://groupware.les.inf.puc-rio.br/har>
+
+My task is to create a model that can predict the which class of activity is being done.
+
+## Download dataset
+
+```{r download_data}
+if(!file.exists("training.csv")) {
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+                "training.csv")
+}
+if(!file.exists("test.csv")) {
+  download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 
+                "test.csv")
+}
+```
+
+## Prepare data for model training, cross validation, and testing.
+
+```{r prepare_data,cache=TRUE}
+set.seed(2738255)
+df <- read.csv("training.csv", stringsAsFactors=TRUE)
+# Remove the column named "X", which represents the observation number and is not relevant to preding outcome
+df <- df[,which(names(df) != "X")]
+# Let's ignore the data dimensions that have near zero variance.  This eliminates rarely varying
+# parameters, which are presumably not very useful for prediction.  In this were a more thorough
+# study, the effect of removing these parameters would be determined.
+df <- df[,-nearZeroVar(df)]
+# Let's partition the training data into training and cross-validation sets.  The
+# cross-validation set is a hold-out set that allows us to measure the accuracy of the model.
+inTrain = createDataPartition(df$classe, p = 0.8)[[1]]
+training = df[ inTrain,]
+cving = df[-inTrain,]
+testing <- read.csv("test.csv")
+testing <- testing[, which(names(df) != "X")]
+```
+
+## Assess data
+
+Let's inspect the data to see if there's any missing values.
+
+```{r assessData, cache=TRUE}
+print("Dimensions of training data:")
+paste(dim(df))
+print("Dimensions of training data, removing observations with NA values:")
+print(dim(df[rowSums(is.na(df)) == 0, ]))
+print("Dimensions of training data, removing data dimensions with NA values:")
+print(dim(df[,colSums(is.na(df)) == 0]))
+```
+
+Given that only 406 observations contain zero NAs, it seems that NAs were included by design.
+
+## Build model
+
+Now that the data is partitioned into distinct sets for training, cross validating, and testing, we can build our model using the training set.  The following three models were the ones I wished to try:
+  
+  1. The package rpart allows a model to be built that contains NA values.  Since the dataset has many NAs, this simplifies the problem of how to use the provided data.
+2. Random forest with observations removed if NA is present.  
+3. Random forest with dimensions removed if NA is present.  I am assuming that the testing set and training set both have the same NA values.  If the testing set were to have NAs, we could try imputing the missing values.  (In this assignment, this approach was not necessary.)
+
+I ruled out 2. because so few training examples apply to it.  Furthermore, it could not be applied to any test examples that contain NA values.
+
+## Build rpart model
+
+```{r buildRpartModel, cache=TRUE}
+# Method 1
+rpartModel <- rpart(classe ~ ., data=training, method="class")
+confusionMatrix(predict(rpartModel, cving, type="class"), 
+                cving$classe)
+```
+
+At 95% confidence level, the accuracy is in the range of 85.8-88.0%.  Let's compare the rpart model's performance with that of a random forest model.
+
+## Build random forest model
+
+```{r buildRFModel, cache=TRUE}
+# Method 3: Remove columns with missing values and do train with random forest method
+rfTraining <- training[,colSums(is.na(df)) == 0]
+rfCving <- cving[, colSums(is.na(df)) == 0]
+rfModel <- train(classe ~ ., data=rfTraining, method="rf")
+confusionMatrix(predict(rfModel, rfCving), rfCving$classe)
+```
+
+The proof is in the confusion matrix of the cross validation sample.  The overall accuracy is determined to be greater than 99.8% at the 95% confidence level.  
+
+Because the random forest model has exceptional accuracy and seems equally suited to identifying all classes, it's the final model selected for this project.
